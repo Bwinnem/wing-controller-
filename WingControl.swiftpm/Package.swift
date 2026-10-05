@@ -32,7 +32,7 @@ let package = Package(
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
             capabilities: [
-                .localNetwork(purpose: "WING Control talks to your Behringer WING mixer over the local network using OSC.")
+                .localNetwork(purposeString: "WING Control talks to your Behringer WING mixer over the local network using OSC.")
             ]
         )
     ],
