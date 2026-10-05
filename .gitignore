@@ -1,0 +1,6 @@
+WingControl.xcodeproj/
+build/
+build.log
+*.zip
+.DS_Store
+xcuserdata/
