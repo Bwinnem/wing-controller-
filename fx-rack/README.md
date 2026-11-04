@@ -1,8 +1,10 @@
 # WING FX Rack
 
-A browser page that shows all 16 FX slots of a Behringer WING in one window. Every parameter of every loaded effect is on screen at once, labelled with what it does, and can be changed live.
+A browser page that shows all 16 FX slots of a Behringer WING in one window, laid out like the console's own EFFECTS screen. Every parameter of every loaded effect is on screen at once, labelled with what it does, and can be changed live.
 
-![WING FX Rack with the demo console](screenshot.png)
+![Overview, like the console's FX screen](screenshot-overview.png)
+
+![With all parameters shown](screenshot.png)
 
 ## Why there is a small bridge
 
@@ -31,10 +33,12 @@ Then open <http://localhost:8080>. The bridge also prints an address you can ope
 
 ## Using it
 
-- Each card is one FX slot. The colour shows the family (reverb, delay, modulation, pitch, EQ, dynamics, amp, channel strip).
-- The drop-down at the top of a card loads a different effect. Slots 1–8 offer premium effects; 9–16 offer standard ones, as on the console.
-- Under the name: whether the slot is inserted on a channel/bus (pre or post), and a one-line description of the effect.
-- **Bars**: drag left/right (the value moves relative to your finger, it never jumps), hold Shift for fine steps, scroll the mouse wheel, use the arrow keys, or double-click to type an exact value (`2.5k` works for Hz).
+- Same order as the console: FX 1–4 down the first column, 5–8 the second (premium half), 9–16 on the right (standard half).
+- Each tile shows, like the console: the model tag (red = premium slot, blue = standard), where it's inserted (e.g. BUS 1), PRE/POST, ON when inserted, a faceplate in the effect's colours, and a big knob for its main parameter. The meter is decoration only: levels aren't available over OSC.
+- Click the effect's name on the faceplate (or the + on an empty slot) to load a different effect. Slots 1–8 offer premium effects; 9–16 offer standard ones.
+- Below each tile: a one-line description and every parameter as a knob, switch or list.
+- **Knobs**: drag up/down or left/right (the value moves relative to your finger, it never jumps), hold Shift for fine steps, scroll the mouse wheel, use the arrow keys, or double-click to type an exact value (`2.5k` works for Hz).
+- **All parameters** (top right) off gives just the console-style 4 × 4 overview.
 - **On/Off** buttons and **drop-downs** for switch and list parameters.
 - **Explain controls** (top right) shows a one-line explanation under every control; turn it off for a more compact view.
 - **Reload from console** reads every slot again.
@@ -68,5 +72,5 @@ This was built and tested against the demo console only. Things to watch when yo
 - `wing.js`: OSC conversation with the WING and the mirror of the 16 slots.
 - `demo-wing.js`: pretend console used by `--demo` and the tests.
 - `osc.js`, `ws.js`: minimal OSC and WebSocket code.
-- `public/`: the page (`app.js`, `style.css`), effect catalog (`catalog.js`) and plain-language text (`help.js`).
+- `public/`: the page (`app.js`, `style.css`), effect catalog (`catalog.js`), plain-language text (`help.js`) and faceplate colours (`look.js`). The faceplates are drawn in CSS from each unit's colours; no Behringer artwork is included.
 - `test/`: `npm test` (or `node --test test/*.test.js`).

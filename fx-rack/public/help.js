@@ -157,17 +157,3 @@ export function paramHint(key, label) {
   for (const [re, text] of HINTS) if (re.test(l) || re.test(key)) return text;
   return '';
 }
-
-/**
- * $a_chn numbering (0..76). 0 = not inserted. Assumed order, matching the console's
- * source numbering: 1-40 channels, 41-48 aux, 49-64 buses, 65-68 mains, 69-76 matrix.
- */
-export function insertLabel(chn, pos) {
-  if (!chn) return 'Not inserted';
-  const where = pos ? 'post' : 'pre';
-  const ranges = [
-    [40, 'Ch', 0], [48, 'Aux', 40], [64, 'Bus', 48], [68, 'Main', 64], [76, 'Mtx', 68],
-  ];
-  const r = ranges.find(([max]) => chn <= max);
-  return r ? `Insert on ${r[1]} ${chn - r[2]} (${where})` : `Insert ${chn} (${where})`;
-}

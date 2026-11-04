@@ -1,10 +1,12 @@
 import { FX_CATALOG, PREMIUM_MODELS, STANDARD_MODELS } from './catalog.js';
-import { MODEL_INFO, paramLabel, paramHint, insertLabel } from './help.js';
+import { MODEL_INFO, paramLabel, paramHint } from './help.js';
+import { faceplate, mainParam } from './look.js';
 
 const rackEl = document.getElementById('rack');
 const statusEl = document.getElementById('status');
 const hostEl = document.getElementById('host');
 const explainEl = document.getElementById('explain');
+const allParamsEl = document.getElementById('allparams');
 
 const slots = new Map(); // n -> { data, el, controls: Map(key -> control) }
 let ws = null;
@@ -27,26 +29,16 @@ function savePref(key, value) {
 hostEl.value = pref('wing.host', '');
 explainEl.checked = pref('wing.explain', '1') === '1';
 document.body.classList.toggle('explain', explainEl.checked);
+allParamsEl.checked = pref('wing.allparams', '1') === '1';
+document.body.classList.toggle('overview', !allParamsEl.checked);
+allParamsEl.addEventListener('change', () => {
+  document.body.classList.toggle('overview', !allParamsEl.checked);
+  savePref('wing.allparams', allParamsEl.checked ? '1' : '0');
+});
 explainEl.addEventListener('change', () => {
   document.body.classList.toggle('explain', explainEl.checked);
   savePref('wing.explain', explainEl.checked ? '1' : '0');
 });
-
-// ---------- effect families (for colour) ----------
-const FAMILY = {
-  reverb: ['HALL', 'ROOM', 'CHAMBER', 'PLATE', 'CONCERT', 'AMBI', 'V-ROOM', 'V-REV', 'V-PLATE', 'GATED', 'REVERSE', 'SHIMMER', 'SPRING', 'VSS3', 'BPLATE', 'DEL/REV'],
-  delay: ['ST-DL', 'TAP-DL', 'TAPE-DL', 'OILCAN', 'BBD-DL'],
-  mod: ['DIMCRS', 'CHORUS', 'FLANGER', 'ROTARY', 'PHASER', 'PANNER', 'MOOD', 'DOUBLE'],
-  pitch: ['PITCH', 'D-PITCH', 'PCORR', 'SUB', 'SUB-M', 'P-BASS'],
-  eq: ['GEQ', 'PIA', 'SOUL', 'E88', 'E84', 'F110', 'PULSAR', 'MACH4', 'DEQ3', 'ENHANCE', 'EXCITER', 'V-IMG', 'BODY', 'SPKMAN'],
-  dyn: ['LIMITER', 'DE-S2', 'C5-CMB', 'TAPE'],
-  amp: ['RACKAMP', 'UKROCK', 'ANGEL', 'JAZZC', 'DELUXE'],
-  strip: ['*EVEN*', '*SOUL*', '*VINTAGE*', '*BUS*', '*MASTER*'],
-};
-function family(model) {
-  for (const [f, list] of Object.entries(FAMILY)) if (list.includes(model)) return f;
-  return 'other';
-}
 
 // ---------- value scales ----------
 function faderPos(db) {
@@ -192,7 +184,10 @@ document.getElementById('connect-form').addEventListener('submit', (e) => {
 document.getElementById('demo-btn').addEventListener('click', () => send({ t: 'connect', host: 'demo' }));
 document.getElementById('refresh').addEventListener('click', () => send({ t: 'refresh' }));
 
+
 // ---------- rack ----------
+// Same order as the console's EFFECTS screen: FX 1-4 down the first column,
+// 5-8 the second (premium), 9-12 and 13-16 the right half (standard).
 function resetRack() {
   slots.clear();
   rackEl.innerHTML = '';
@@ -206,100 +201,154 @@ function el(tag, cls, text) {
   return e;
 }
 
+/** "BUS 4", "CH 12", "MAIN 1"… from $a_chn (assumed order: 1-40 ch, 41-48 aux, 49-64 bus, 65-68 main, 69-76 mtx). */
+function insertShort(chn) {
+  if (!chn) return '';
+  const ranges = [[40, 'CH', 0], [48, 'AUX', 40], [64, 'BUS', 48], [68, 'MAIN', 64], [76, 'MTX', 68]];
+  const r = ranges.find(([max]) => chn <= max);
+  return r ? `${r[1]} ${chn - r[2]}` : `#${chn}`;
+}
+
+function modelSelect(n, model) {
+  const select = el('select', 'model');
+  select.title = 'Load a different effect in this slot';
+  const list = n <= 8 ? PREMIUM_MODELS : STANDARD_MODELS;
+  if (!model) select.append(new Option('…', ''));
+  for (const m of list) select.append(new Option(m === 'NONE' ? '— Empty —' : FX_CATALOG[m]?.name || m, m));
+  if (model && !list.includes(model)) select.append(new Option(model, model));
+  select.value = model || '';
+  select.addEventListener('change', () => {
+    send({ t: 'set', n, key: 'mdl', value: select.value });
+    slots.get(n).el.querySelector('.panel-params')?.replaceChildren(el('div', 'loading', 'Loading effect…'));
+  });
+  return select;
+}
+
+function addControl(slot, key, control) {
+  if (!slot.controls.has(key)) slot.controls.set(key, []);
+  slot.controls.get(key).push(control);
+}
+
 function renderSlot(data) {
   let slot = slots.get(data.n);
   if (!slot) {
     slot = { el: el('section', 'slot'), controls: new Map() };
     slots.set(data.n, slot);
-    // keep slots in order
     const after = [...slots.keys()].filter((k) => k > data.n).sort((a, b) => a - b)[0];
     rackEl.insertBefore(slot.el, after ? slots.get(after).el : null);
   }
   slot.data = data;
   slot.controls.clear();
   const { n, model } = data;
-  const fam = model ? family(model) : 'other';
+  const empty = !model || model === 'NONE';
+  const look = faceplate(model || 'NONE');
   const root = slot.el;
-  root.className = `slot cat-${fam}${!model || model === 'NONE' ? ' empty' : ''}`;
+  root.className = `slot ${n <= 8 ? 'premium' : 'standard'}${empty ? ' empty' : ''}`;
+  for (const [k, v] of Object.entries(look)) root.style.setProperty(`--${k}`, v);
   root.innerHTML = '';
 
-  // header: number, tier, model picker
-  const head = el('div', 'slot-head');
-  head.append(el('span', 'slot-no', `FX ${n}`), el('span', 'slot-tier', n <= 8 ? 'Premium' : 'Standard'));
-  const select = el('select', 'model');
-  select.title = 'Load a different effect in this slot';
-  const list = n <= 8 ? PREMIUM_MODELS : STANDARD_MODELS;
-  if (!model) select.append(new Option('…', ''));
-  for (const m of list) select.append(new Option(`${FX_CATALOG[m]?.name || m}`, m));
-  if (model && !list.includes(model)) select.append(new Option(model, model));
-  select.value = model || '';
-  select.addEventListener('change', () => {
-    send({ t: 'set', n, key: 'mdl', value: select.value });
-    root.querySelector('.params')?.replaceChildren(el('div', 'loading', 'Loading effect…'));
-  });
-  head.append(select);
-  root.append(head);
+  const tile = el('div', 'tile');
+  tile.append(el('span', 'num', String(n)));
+  root.append(tile);
 
-  const meta = el('div', 'slot-meta');
-  const ins = el('span', `ins${data.chn ? ' on' : ''}`, insertLabel(data.chn, data.pos));
-  meta.append(ins, el('span', 'code', model && model !== 'NONE' ? model : ''));
-  root.append(meta);
-  if (model) root.append(el('div', 'slot-desc', MODEL_INFO[model] || ''));
-
-  if (!model) {
-    root.append(el('div', 'loading', 'Reading slot…'));
+  if (empty) {
+    const plus = el('div', 'plus');
+    plus.append(el('span', 'plus-ring', '+'), el('span', 'plus-text', model ? `FX ${n}: empty` : 'Reading…'));
+    const pick = modelSelect(n, model);
+    pick.classList.add('overlay');
+    tile.append(plus, pick, meterEl());
     return;
   }
-  if (model === 'NONE') return;
 
-  const mixRow = el('div', 'mixrow');
-  const mixDef = { type: 'linf', min: 0, max: 100, steps: 101, unit: '%', label: 'FX mix' };
-  mixRow.append(makeControl(n, 'fxmix', mixDef, data.mix, 'Wet/dry balance of the whole slot'));
-  root.append(mixRow);
+  // left column: model tag, FX glyph, insert, PRE/POST, ON
+  const side = el('div', 'side');
+  side.append(el('div', 'tag', model), el('div', 'glyph', 'FX'));
+  side.append(el('div', 'ins', insertShort(data.chn) || ' '));
+  const pp = el('div', 'prepost');
+  const pre = el('span', 'pre', 'PRE');
+  const post = el('span', 'post', 'POST');
+  if (data.chn) (data.pos ? post : pre).classList.add('lit');
+  pp.append(pre, post);
+  pp.title = data.chn ? `Inserted ${data.pos ? 'post' : 'pre'} on ${insertShort(data.chn)}` : 'Not inserted on any channel';
+  const on = el('div', `on${data.chn ? ' lit' : ''}`, 'ON');
+  on.title = pp.title;
+  side.append(pp, on);
 
-  const params = el('div', 'params');
-  if (!data.params.length) params.append(el('div', 'loading', data.loading ? 'Reading parameters…' : 'No adjustable parameters'));
-  for (const p of data.params) {
-    const def = FX_CATALOG[model]?.params.find((d) => d.key === p.key);
-    params.append(makeControl(n, p.key, def, p.value));
+  // faceplate with the effect picker
+  const plate = el('div', 'plate');
+  plate.append(modelSelect(n, model));
+  const deco = el('div', 'deco');
+  for (let i = 0; i < 5; i++) deco.append(el('i'));
+  plate.append(deco);
+
+  const centre = el('div', 'centre');
+  centre.append(plate);
+
+  // big knob for the effect's main parameter
+  const defs = new Map((FX_CATALOG[model]?.params || []).map((d) => [d.key, d]));
+  const numeric = new Set(
+    data.params.filter((p) => isKnob(defs.get(p.key))).map((p) => p.key)
+  );
+  const mainKey = mainParam(data.params, numeric);
+  if (mainKey) {
+    const def = defs.get(mainKey);
+    const value = data.params.find((p) => p.key === mainKey)?.value;
+    centre.append(knobControl(slot, n, mainKey, def, value, { size: 44, big: true }));
   }
-  root.append(params);
+  tile.append(side, centre, meterEl());
+
+  // full panel: description, slot mix and every parameter
+  const panel = el('div', 'panel');
+  panel.append(el('div', 'desc', MODEL_INFO[model] || ''));
+  const grid = el('div', 'panel-params');
+  const mixDef = { type: 'linf', min: 0, max: 100, steps: 101, unit: '%', label: 'FX mix' };
+  grid.append(knobControl(slot, n, 'fxmix', mixDef, data.mix, { hint: 'Wet/dry balance of the whole slot', label: 'FX mix' }));
+  if (!data.params.length) grid.append(el('div', 'loading', data.loading ? 'Reading parameters…' : 'No adjustable parameters'));
+  for (const p of data.params) grid.append(makeControl(slot, n, p.key, defs.get(p.key), p.value));
+  panel.append(grid);
+  root.append(panel);
+}
+
+function meterEl() {
+  const m = el('div', 'meter');
+  m.title = 'Level meter (not sent over OSC)';
+  for (let i = 0; i < 2; i++) {
+    const col = el('div', 'meter-col');
+    for (let j = 0; j < 10; j++) col.append(el('i'));
+    m.append(col);
+  }
+  return m;
 }
 
 function updateValue({ n, key, value }) {
-  const ctl = slots.get(n)?.controls.get(key);
-  if (ctl) ctl.set(value);
-  const p = slots.get(n)?.data.params.find((x) => x.key === key);
+  const slot = slots.get(n);
+  if (!slot) return;
+  for (const c of slot.controls.get(key) || []) c.set(value);
+  const p = slot.data.params.find((x) => x.key === key);
   if (p) p.value = value;
-  if (key === 'fxmix' && slots.get(n)) slots.get(n).data.mix = value;
+  if (key === 'fxmix') slot.data.mix = value;
 }
 
 // ---------- controls ----------
-function makeControl(n, key, def, value, hintText) {
-  const slot = slots.get(n);
-  const label = def?.label === 'FX mix' ? 'FX mix' : paramLabel(key, def);
-  const box = el('div', 'ctl');
-  const top = el('div', 'ctl-top');
-  const name = el('span', 'ctl-name', label);
-  const val = el('span', 'ctl-val');
-  name.title = `${label} (${key})`;
-  top.append(name, val);
-  box.append(top);
-  const hint = hintText || paramHint(key, label);
+function isKnob(def) {
+  return def && !(def.type === 'str' || def.type === 'flt') && !(def.type === 'int' && def.min === 0 && def.max === 1);
+}
 
+function makeControl(slot, n, key, def, value) {
+  if (isKnob(def)) return knobControl(slot, n, key, def, value);
+  const label = paramLabel(key, def);
+  const box = el('div', 'ctl');
+  box.append(el('div', 'ctl-name', label));
   let control;
   if (!def) {
-    // Not in the documentation: show what the console reports, read only.
-    control = { set: (v) => (val.textContent = formatValue(typeof v === 'number' ? +v.toFixed(2) : v, null)) };
-    box.append(el('div', 'readonly hint', 'Shown as reported by the console'));
+    const ro = el('div', 'lcd');
+    box.append(ro);
+    control = { set: (v) => (ro.textContent = formatValue(typeof v === 'number' ? +v.toFixed(2) : v, null)) };
+    box.title = 'Shown as reported by the console';
   } else if (def.type === 'str' || def.type === 'flt') {
-    const pick = el('select', 'pick');
+    const pick = el('select', 'lcd pick');
     for (const o of def.options || []) pick.append(new Option(o + (def.unit && def.unit !== '%' ? ` ${def.unit}` : ''), o));
-    pick.addEventListener('change', () => {
-      const v = def.type === 'flt' ? Number(pick.value) : pick.value;
-      val.textContent = '';
-      sendValue(n, key, v);
-    });
+    pick.addEventListener('change', () => sendValue(n, key, def.type === 'flt' ? Number(pick.value) : pick.value));
     box.append(pick);
     control = {
       set: (v) => {
@@ -307,50 +356,88 @@ function makeControl(n, key, def, value, hintText) {
         const match = (def.options || []).find((o) => o === s || (def.type === 'flt' && Number(o) === Number(v)));
         if (match == null && s && ![...pick.options].some((o) => o.value === s)) pick.append(new Option(s, s));
         pick.value = match ?? s;
-        val.textContent = '';
       },
     };
-  } else if (def.type === 'int' && def.min === 0 && def.max === 1) {
-    const btn = el('button', 'toggle');
+  } else {
+    const btn = el('button', 'switch-btn');
     btn.type = 'button';
     let on = false;
     btn.addEventListener('click', () => {
-      on = !on;
-      control.set(on ? 1 : 0);
+      control.set(on ? 0 : 1);
       sendValue(n, key, on ? 1 : 0);
     });
     box.append(btn);
     control = {
       set: (v) => {
         on = Number(v) > 0.5;
-        btn.classList.toggle('on', on);
-        btn.textContent = on ? 'On' : 'Off';
-        val.textContent = '';
+        btn.classList.toggle('lit', on);
+        btn.textContent = on ? 'ON' : 'OFF';
       },
     };
-  } else {
-    control = makeBar(box, val, def, (v) => sendValue(n, key, v));
   }
+  const hint = paramHint(key, label);
   if (hint) box.append(el('div', 'hint', hint));
   control.set(value);
-  slot.controls.set(key, control);
+  addControl(slot, key, control);
   return box;
 }
 
-function makeBar(box, valEl, def, onChange) {
-  const scale = makeScale(def);
-  const bar = el('div', 'bar');
-  bar.tabIndex = 0;
-  bar.setAttribute('role', 'slider');
-  const fill = el('div', 'fill');
-  bar.append(fill);
-  if (scale.bipolar) {
-    const z = el('div', 'zero');
-    z.style.left = `${scale.pos(0) * 100}%`;
-    bar.append(z);
-  }
-  box.append(bar);
+const ARC = 270; // degrees of knob travel, from 7:30 to 4:30 like a hardware pot
+function arcPath(r, from, to) {
+  const a0 = ((from - 225) * Math.PI) / 180;
+  const a1 = ((to - 225) * Math.PI) / 180;
+  const x0 = 50 + r * Math.cos(a0);
+  const y0 = 50 + r * Math.sin(a0);
+  const x1 = 50 + r * Math.cos(a1);
+  const y1 = 50 + r * Math.sin(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
 
+function knobControl(slot, n, key, def, value, opts = {}) {
+  const label = opts.label || paramLabel(key, def);
+  const box = el('div', `ctl knob-ctl${opts.big ? ' big' : ''}`);
+  const knob = el('div', 'knob');
+  knob.tabIndex = 0;
+  knob.setAttribute('role', 'slider');
+  knob.setAttribute('aria-label', label);
+  const size = opts.size || 32;
+  knob.style.width = knob.style.height = `${size}px`;
+  knob.innerHTML =
+    '<svg viewBox="0 0 100 100" aria-hidden="true">' +
+    `<path class="track" d="${arcPath(44, 0, ARC)}"/>` +
+    '<path class="value" d=""/>' +
+    '<circle class="body" cx="50" cy="50" r="33"/>' +
+    '<line class="pointer" x1="50" y1="50" x2="50" y2="22"/>' +
+    '</svg>';
+  const text = el('div', 'knob-text');
+  const name = el('div', 'ctl-name', label);
+  name.title = `${label} (${key})`;
+  const val = el('div', 'ctl-val');
+  text.append(name, val);
+  box.append(knob, text);
+  const hint = opts.hint || paramHint(key, label);
+  if (hint && !opts.big) box.append(el('div', 'hint', hint));
+  if (opts.big) box.title = hint;
+
+  const valuePath = knob.querySelector('.value');
+  const pointer = knob.querySelector('.pointer');
+  const control = makeDial(knob, def, (v) => sendValue(n, key, v), (pos, bipolarZero, v) => {
+    const start = bipolarZero == null ? 0 : bipolarZero * ARC;
+    const end = pos * ARC;
+    valuePath.setAttribute('d', Math.abs(end - start) < 0.5 ? '' : arcPath(44, Math.min(start, end), Math.max(start, end)));
+    pointer.setAttribute('transform', `rotate(${end - 135} 50 50)`);
+    val.textContent = formatValue(v, def);
+    knob.setAttribute('aria-valuetext', val.textContent);
+  });
+  control.set(value);
+  addControl(slot, key, control);
+  return box;
+}
+
+/** Drag (up/right raises), wheel, arrow keys and double-click-to-type for a knob. */
+function makeDial(knob, def, onChange, draw) {
+  const scale = makeScale(def);
+  const zero = scale.bipolar ? scale.pos(0) : null;
   let value = null;
   let pos = 0;
   let dragging = false;
@@ -358,64 +445,53 @@ function makeBar(box, valEl, def, onChange) {
   function show(v) {
     value = v;
     pos = typeof v === 'number' ? scale.pos(v) : 0;
-    if (scale.bipolar) {
-      const z = scale.pos(0);
-      fill.style.left = `${Math.min(z, pos) * 100}%`;
-      fill.style.width = `${Math.abs(pos - z) * 100}%`;
-    } else {
-      fill.style.left = '0';
-      fill.style.width = `${pos * 100}%`;
-    }
-    valEl.textContent = formatValue(v, def);
-    bar.setAttribute('aria-valuetext', valEl.textContent);
+    draw(pos, zero, v);
   }
   function change(p) {
     const v = scale.val(p);
-    pos = p;
     if (v !== value) {
       show(v);
-      pos = p; // keep sub-step drag motion
       onChange(v);
     }
+    pos = p; // keep sub-step motion while dragging
   }
 
-  // drag relative to where you grab, so touching a bar never jumps the value
   let startX = 0;
+  let startY = 0;
   let startPos = 0;
-  bar.addEventListener('pointerdown', (e) => {
+  knob.addEventListener('pointerdown', (e) => {
     if (e.target.tagName === 'INPUT') return;
     dragging = true;
     startX = e.clientX;
+    startY = e.clientY;
     startPos = pos;
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add('dragging');
+    knob.setPointerCapture(e.pointerId);
+    knob.classList.add('dragging');
+    e.preventDefault();
   });
-  bar.addEventListener('pointermove', (e) => {
+  knob.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const width = bar.getBoundingClientRect().width || 1;
     const fine = e.shiftKey ? 0.2 : 1;
-    change(Math.min(1, Math.max(0, startPos + ((e.clientX - startX) / width) * fine)));
+    const travel = (e.clientX - startX - (e.clientY - startY)) / 180;
+    change(Math.min(1, Math.max(0, startPos + travel * fine)));
   });
   const end = () => {
     dragging = false;
-    bar.classList.remove('dragging');
+    knob.classList.remove('dragging');
   };
-  bar.addEventListener('pointerup', end);
-  bar.addEventListener('pointercancel', end);
+  knob.addEventListener('pointerup', end);
+  knob.addEventListener('pointercancel', end);
 
-  const nudge = (dir, big) => {
-    const step = (scale.stepPos || 0.005) * (big ? 10 : 1);
-    change(Math.min(1, Math.max(0, pos + dir * step)));
-  };
-  bar.addEventListener(
+  const nudge = (dir, big) => change(Math.min(1, Math.max(0, pos + dir * (scale.stepPos || 0.005) * (big ? 10 : 1))));
+  knob.addEventListener(
     'wheel',
     (e) => {
       e.preventDefault();
-      nudge(e.deltaY < 0 || e.deltaX > 0 ? 1 : -1, false);
+      nudge(e.deltaY < 0 ? 1 : -1, false);
     },
     { passive: false }
   );
-  bar.addEventListener('keydown', (e) => {
+  knob.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowUp') nudge(1, e.shiftKey);
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') nudge(-1, e.shiftKey);
     else if (e.key === 'Enter') typeIn();
@@ -423,13 +499,14 @@ function makeBar(box, valEl, def, onChange) {
     e.preventDefault();
   });
 
-  // double-click to type an exact value
   function typeIn() {
+    const box = knob.parentElement;
     const input = document.createElement('input');
     input.type = 'text';
     input.inputMode = 'decimal';
+    input.className = 'type-in';
     input.value = typeof value === 'number' ? String(+value.toFixed(3)) : '';
-    bar.append(input);
+    box.append(input);
     input.focus();
     input.select();
     let done = false;
@@ -444,17 +521,10 @@ function makeBar(box, valEl, def, onChange) {
           t = t.replace(/k(hz)?$/, '');
         }
         const num = parseFloat(t) * mult;
-        if (!Number.isNaN(num)) {
-          const clamped = Math.min(scale.max, Math.max(scale.min, num));
-          change(scale.pos(clamped));
-          // land exactly on the typed value when it is a valid step
-          if (Math.abs(scale.val(scale.pos(clamped)) - clamped) > 1e-6 && def.type !== 'int') {
-            show(scale.val(scale.pos(clamped)));
-          }
-        }
+        if (!Number.isNaN(num)) change(scale.pos(Math.min(scale.max, Math.max(scale.min, num))));
       }
       input.remove();
-      bar.focus();
+      knob.focus();
     };
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') finish(true);
@@ -463,11 +533,11 @@ function makeBar(box, valEl, def, onChange) {
     });
     input.addEventListener('blur', () => finish(true));
   }
-  bar.addEventListener('dblclick', typeIn);
+  knob.addEventListener('dblclick', typeIn);
 
   return {
     set: (v) => {
-      if (dragging) return; // don't fight the hand on the bar
+      if (dragging) return; // don't fight the hand on the knob
       show(typeof v === 'string' && !Number.isNaN(Number(v)) ? Number(v) : v);
     },
   };
