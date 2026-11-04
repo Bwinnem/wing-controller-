@@ -1,5 +1,7 @@
 # WING Control
 
+> Also in this repo: **[WING FX Rack](fx-rack/)**, a browser page showing all 16 FX slots with live control.
+
 A simple iOS / iPadOS OSC controller for the Behringer WING. Drag ready-made faders, knobs and buttons from a palette onto the screen; each one is already bound to a WING parameter.
 
 ## Open and run

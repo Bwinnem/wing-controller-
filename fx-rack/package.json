@@ -1,0 +1,13 @@
+{
+  "name": "wing-fx-rack",
+  "version": "1.0.0",
+  "description": "Browser view of all 16 Behringer WING FX slots with live OSC control",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node bridge.js",
+    "demo": "node bridge.js --demo",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WING FX Rack</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo">FX</span>
+      <h1>WING FX Rack</h1>
+    </div>
+    <div class="conn">
+      <span id="status" class="status offline"><i></i><span>Offline</span></span>
+      <form id="connect-form">
+        <input id="host" type="text" inputmode="decimal" placeholder="Console IP, e.g. 192.168.1.71" autocomplete="off" spellcheck="false">
+        <button type="submit">Connect</button>
+        <button type="button" id="demo-btn" class="ghost" title="Try it with a pretend console">Demo</button>
+      </form>
+    </div>
+    <div class="tools">
+      <label class="switch" title="Show a one-line explanation under every control">
+        <input type="checkbox" id="explain" checked><span>Explain controls</span>
+      </label>
+      <button type="button" id="refresh" class="ghost" title="Read every slot from the console again">Reload from console</button>
+    </div>
+  </header>
+  <main id="rack" class="rack" aria-live="polite"></main>
+  <footer class="foot">
+    Drag a bar left/right to change it (hold Shift for fine steps), scroll over it, or double-click to type a value.
+    Slots 1–8 take premium effects (reverbs, delays, modulation); 9–16 take standard effects.
+  </footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
